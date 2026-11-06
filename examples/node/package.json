@@ -6,6 +6,6 @@
   "main": "server.js",
   "engines": { "node": ">=22" },
   "dependencies": {
-    "pino": "^9.0.0"
+    "pino": "^10.4.0"
   }
 }

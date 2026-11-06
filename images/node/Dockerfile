@@ -23,7 +23,11 @@ ENV NPM_CONFIG_UPDATE_NOTIFIER=false \
     COREPACK_ENABLE_DOWNLOAD_PROMPT=0 \
     COREPACK_HOME=/home/nonroot/.cache/corepack
 
-RUN corepack enable && \
+# Node >= 25 no longer bundles corepack; install a pinned copy there so pnpm/yarn work on every version.
+# (Only used when the base image lacks it; bump when you bump the node pins.)
+ARG COREPACK_VERSION=0.36.0
+RUN if ! command -v corepack >/dev/null 2>&1; then npm install --global --no-fund "corepack@${COREPACK_VERSION}" && npm cache clean --force; fi && \
+    corepack enable && \
     mkdir -p /src /home/nonroot/.npm /home/nonroot/.cache && \
     chown -R 65532:65532 /src /home/nonroot/.npm /home/nonroot/.cache
 WORKDIR /src

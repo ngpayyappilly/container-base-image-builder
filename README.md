@@ -1,44 +1,64 @@
 # Hardened base images: Go · Java · Python · Node
 
-One repo, one build entry point, one hardening recipe, four languages. Every language
-ships **two images**: a `*-build` image (toolchain, throw-away) and a `*-runtime` image
-(the only thing that reaches production).
+One repo, one build entry point, one hardening recipe, four languages, **several versions
+of each**. Every language ships a `*-build` image (toolchain, throw-away) and a `*-runtime`
+image (the only thing that reaches production) **per supported version**: 24 images in total.
+The image tag is the language version: `java-runtime:21`, `node-build:24`, `go-runtime:1.27`.
 
-| Image | Built from | Size | Shell | Notes |
+## Supported versions
+
+| Language | Versions | Policy |
+|---|---|---|
+| Java | **17, 21, 25** | the three current LTS releases |
+| Node | **22, 24, 26** | LTS lines (even majors; 26 entered LTS in Oct 2026) |
+| Go | **1.26, 1.27** | no LTS exists; the two releases Go itself supports |
+| Python | **3.12, 3.13, 3.14** | no LTS exists; the supported releases with at least ~1 year of life left |
+
+Versions come from [pins.tsv](pins.tsv) (EOL dates are in its header). Retire a version
+about 6 months before its upstream EOL so consumers have time to migrate.
+
+| Image | Built from | Size (per version) | Shell | Notes |
 |---|---|---|---|---|
-| `go-build` | `golang:1.26-trixie` | 892 MB | yes | `CGO_ENABLED=0`, `GOTOOLCHAIN=local`, `-trimpath` |
+| `go-build` | `golang:<v>-trixie` | 892 / 902 MB | yes | `CGO_ENABLED=0`, `GOTOOLCHAIN=local`, `-trimpath` |
 | `go-runtime` | `distroless/static-debian13` | **2.4 MB** | no | static binaries |
 | `go-runtime-cgo` | `distroless/base-debian13` | 35 MB | no | cgo binaries (glibc, libssl) |
-| `java-build` | `eclipse-temurin:25-jdk-noble` | 423 MB | yes | bring Maven/Gradle via your wrapper |
-| `java-runtime` | `distroless/java-base-debian13` + **jlinked JRE** | 134 MB | no | CDS archive, cacerts bundled |
-| `python-build` | `python:3.14-trixie` + `uv` | 1.17 GB | yes | deps go to a relocatable `/opt/venv` |
-| `python-runtime` | `python:3.14-slim-trixie`, hardened | 146 MB | `sh` only | no pip/apt/setuid, `tini` as PID 1 |
-| `node-build` | `node:24-trixie` | 1.24 GB | yes | corepack on, quiet npm |
-| `node-runtime` | `distroless/nodejs24-debian13` | 162 MB | no | `NODE_ENV=production` |
+| `java-build` | `eclipse-temurin:<v>-jdk-noble` | 462 / 488 / 429 MB | yes | bring Maven/Gradle via your wrapper |
+| `java-runtime` | `distroless/java-base-debian13` + **jlinked JRE** | 121 / 131 / 134 MB | no | CDS archive, cacerts bundled |
+| `python-build` | `python:<v>-trixie` + `uv` | 1.16-1.17 GB | yes | deps go to a relocatable `/opt/venv` |
+| `python-runtime` | `python:<v>-slim-trixie`, hardened | 145-146 MB | `sh` only | no pip/apt/setuid, `tini` as PID 1 |
+| `node-build` | `node:<v>-trixie` | 1.24 / 1.24 / 1.26 GB | yes | corepack on (installed from npm on Node ≥ 25), quiet npm |
+| `node-runtime` | `distroless/nodejs<v>-debian13` | 161 / 162 / 189 MB | no | `NODE_ENV=production` |
 
-All images: Debian 13 "trixie" userspace, `linux/amd64` + `linux/arm64`, run as numeric
-**uid/gid 65532** (the distroless `nonroot` id, so one `runAsUser` and one `--chown` everywhere).
+(Multiple sizes are listed in version order: Go 1.26/1.27, Java 17/21/25, Node 22/24/26.)
+
+All images: Debian 13 "trixie" userspace (the JDK stage is Ubuntu 24.04, see trade-offs),
+`linux/amd64` + `linux/arm64`, run as numeric **uid/gid 65532** (the distroless `nonroot`
+id, so one `runAsUser` and one `--chown` everywhere).
 
 ## Quick start
 
 ```bash
-make build        # build all 9 images locally (REGISTRY=local)
-make test         # + assert hardening invariants + build & run every example
+make build        # build all 24 images locally (REGISTRY=local)
+make test         # + assert hardening invariants + build & run every example, per version
 make scan         # Trivy gate: runtime images must have 0 fixable HIGH/CRITICAL
 make lint         # hadolint + shellcheck
 make pins         # re-resolve upstream tags to digests (pins.hcl)
+
+# any of build/test/scan can be narrowed:
+make test ONLY=java                  # one language, all its versions
+make test ONLY="java:21 go:1.27"     # specific versions
 ```
 
 Consuming an image (full examples in [examples/](examples)):
 
 ```dockerfile
-FROM ghcr.io/acme/go-build:1.26@sha256:... AS build      # pin YOUR deps on OUR digest
+FROM ghcr.io/ngpayyappilly/go-build:1.27@sha256:... AS build   # pin YOUR deps on OUR digest
 COPY --chown=65532:65532 go.mod go.sum ./                # 1. dependency layer (rarely changes)
 RUN --mount=type=cache,target=/go/pkg/mod,uid=65532,gid=65532 go mod download
 COPY --chown=65532:65532 . .                             # 2. source layer (changes every commit)
 RUN go build -o /src/app .
 
-FROM ghcr.io/acme/go-runtime:1.26@sha256:...
+FROM ghcr.io/ngpayyappilly/go-runtime:1.27@sha256:...
 COPY --from=build /src/app /app
 ENTRYPOINT ["/app"]
 ```
@@ -46,16 +66,20 @@ ENTRYPOINT ["/app"]
 ## How it's layered
 
 ```
- upstream (pinned by digest in pins.hcl)
- ├─ golang:1.26-trixie ──────────► go-build            └─ distroless/static ──► go-runtime
- ├─ temurin:25-jdk ─┬─ jlink ────► (JRE /opt/jre) ──┐   └─ distroless/base ────► go-runtime-cgo
+ upstream (pinned by digest in pins.hcl; shown for ONE version, repeated for each)
+ ├─ golang:<v>-trixie ───────────► go-build            └─ distroless/static ──► go-runtime
+ ├─ temurin:<v>-jdk ┬─ jlink ────► (JRE /opt/jre) ──┐   └─ distroless/base ────► go-runtime-cgo
  │                  └────────────► java-build       └─► distroless/java-base ──► java-runtime
- ├─ python:3.14-trixie + uv ─────► python-build ─ /opt/venv ─┐
- │  python:3.14-slim-trixie ─ harden.sh ─────────────────────┴► python-runtime
- └─ node:24-trixie ──────────────► node-build           └─ distroless/nodejs ──► node-runtime
+ ├─ python:<v>-trixie + uv ──────► python-build ─ /opt/venv ─┐
+ │  python:<v>-slim-trixie ─ harden.sh ──────────────────────┴► python-runtime
+ └─ node:<v>-trixie ─────────────► node-build           └─ distroless/nodejs<v> ──► node-runtime
 
- your app image = <lang>-build (compile)  ──COPY --from──►  <lang>-runtime (ship)
+ your app image = <lang>-build:<v> (compile)  ──COPY --from──►  <lang>-runtime:<v> (ship)
 ```
+
+Versions are a bake **matrix** (`docker-bake.hcl`): adding a version adds a column, not a copy of the Dockerfile.
+The same Dockerfile serves every version; the few per-version differences (JDK 17 `jlink` compression,
+`jdk.crypto.ec` on ≤ 21, corepack on Node ≥ 25) are handled inside it.
 
 Layering rules the repo follows (and your app images should too):
 
@@ -119,21 +143,25 @@ volumes: [{ name: tmp, emptyDir: { medium: Memory } }]   # mount at /tmp
 ## Operating it
 
 * **Weekly**: `refresh-pins` opens a PR with new upstream digests (new Go/JDK/Node/Python patch releases); `build.yml` rebuilds and republishes on a schedule so Debian security fixes land even without a code change.
-* **New language major** (`node:24` → `node:26`): edit [pins.tsv](pins.tsv), `make pins`, `make test`. Image tags follow the version (`node-runtime:26`), so teams migrate on their own schedule. To support two majors at once, add a second `VAR` set in `pins.tsv` and a second set of bake targets.
+* **Add a version** (say Node 28): add `28` to the `versions node` line in [pins.tsv](pins.tsv), `make pins`, `make test ONLY=node:28`. Nothing else: the bake matrix, CI matrix targets, verify, smoke and scan scripts all read `pins.tsv`. Tags follow the version (`node-runtime:28`), so teams migrate on their own schedule.
+* **Retire a version**: remove it from `pins.tsv` ~6 months before upstream EOL, announce it, and leave the already-published tags in the registry.
+* **Docker Hub rate limits**: `make pins` and the first builds pull ~25 upstream images; anonymous pulls are capped (HTTP 429, 100 per hour per IP). Run `docker login` locally. In CI add the optional secrets `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN`; the login step is skipped without them.
 * **Consumers** should pin `image:tag@sha256:…` and let Renovate/Dependabot bump it; `:<major>` is a convenience tag that moves weekly.
 * **Verify a pulled image**: `cosign verify --certificate-identity-regexp 'https://github.com/<org>/<repo>/' --certificate-oidc-issuer https://token.actions.githubusercontent.com <image>@<digest>`
 * **Debugging shell-less images**: `kubectl debug -it <pod> --image=busybox --target=<container>` or `docker debug`. Don't add a shell to production images.
 
 ## Setup checklist (placeholders to fill in)
 
-1. `git init`, then replace `ngpayyappilly` in [docker-bake.hcl](docker-bake.hcl) (`SOURCE_URL`) and the example Dockerfiles (`ghcr.io/ngpayyappilly/...`). `REGISTRY` is set by CI (`ghcr.io/<owner>`); for ECR change the login step in `build.yml`.
+1. Check that the `SOURCE_URL` default in [docker-bake.hcl](docker-bake.hcl) and the `ghcr.io/ngpayyappilly/...` defaults in the example Dockerfiles match your real GitHub repo. CI overrides `SOURCE_URL` and `REGISTRY` (`ghcr.io/<owner>`) from the workflow context; for ECR change the login step in `build.yml`.
 2. Make the first publish, then pin your app images to the resulting digests.
 
 ## Trade-offs and known limitations
 
 * **Python runtime is hardened-slim, not distroless.** `distroless/python3` ships Debian's own Python version and can't take extra system libs. The cost: a `sh` and ~146 MB. If your services are pure-Python wheels and you accept Debian's version, switching is a small change.
-* **The JRE is jlinked from Temurin on Ubuntu 24.04 and run on Debian 13 distroless.** glibc is backwards-compatible and this is exercised by `make test`, but it's two distros; if you want one, swap `JAVA_JDK_IMAGE` for a trixie-based JDK. The default module list includes `java.desktop` because Spring/Jackson use `java.beans`; trim it per app with `jdeps`. On JDK ≤ 21 also add `jdk.crypto.ec`.
+* **The JRE is jlinked from Temurin on Ubuntu 24.04 and run on Debian 13 distroless.** glibc is backwards-compatible and this is exercised by `make test`, but it's two distros; if you want one, swap `JAVA_JDK_IMAGE` for a trixie-based JDK. The default module list includes `java.desktop` because Spring/Jackson use `java.beans`; trim it per app with `jdeps`. `jdk.crypto.ec` is added automatically on JDK ≤ 21 (it was merged into `java.base` in 22).
 * **`JAVA_TOOL_OPTIONS` prints `Picked up JAVA_TOOL_OPTIONS…` to stderr** on every JVM start (including healthchecks). Harmless; move the flags into your `ENTRYPOINT` if the noise matters.
 * **Build images are not gated on CVEs, only reported.** Findings there are in upstream-bundled tooling (e.g. npm/corepack internals) and never ship; runtime images are gated hard.
 * **No hardened-OS vendor (Chainguard, Wolfi, Docker Hardened Images).** They give faster CVE turnaround than self-patching Debian, at a licensing/lock-in cost. Worth evaluating once volume justifies it; this repo's `pins.tsv` is the only place you'd change.
-* **Tested here:** all 9 images built natively on linux/arm64 (Docker Desktop), `make lint`/`test`/`scan` green. **Not tested here:** the GitHub Actions workflows (multi-arch/QEMU build, push, cosign) have never run, so expect to fix small things on their first execution.
+* **Python and Go have no LTS.** Python 3.12 (EOL Oct 2028) through 3.14 are all "supported"; Go supports only the last two releases, so Go versions turn over every ~6 months and `pins.tsv` needs a bump then.
+* **Node 26 is brand new LTS** (Oct 2026) and its distroless image is the largest (189 MB); if you want the most battle-tested line today, use 22 or 24.
+* **Tested locally (linux/arm64, Docker Desktop):** all 24 images built; `make lint`, `make test` (version + hardening asserts and every example run under `--read-only --cap-drop ALL`) and `make scan` are green. **Not tested:** the multi-arch (QEMU amd64) build, push, SBOM/provenance attestation and cosign signing steps in the GitHub Actions `publish` job have not run yet, so expect small fixes the first time they do.

@@ -1,0 +1,6 @@
+# Base images are built with the repo root as context. Send BuildKit only what
+# the Dockerfiles actually read; nothing else (secrets, .git, examples) can leak
+# into a layer or bust the cache.
+*
+!scripts/harden.sh
+!images/

@@ -1,0 +1,37 @@
+# Human-edited source of truth: WHICH language versions we ship and WHAT we build on.
+# `make pins` resolves every expanded ref to an immutable digest -> pins.hcl (generated).
+# Columns are TAB separated.
+#
+#   versions <lang> <v1> <v2> ...     the versions we publish for <lang>
+#   <lang>/<role>  <image:tag>        upstream image; "{v}" is replaced by each version
+#
+# Version policy (checked against endoflife.date, Nov 2026)
+#   java    LTS only: 17 (to Oct 2027), 21 (to Dec 2029), 25 (to Sep 2031)
+#   node    even/LTS majors: 22 (to Apr 2027), 24 (to Apr 2028), 26 (to Apr 2029). 20 is EOL.
+#   go      no LTS; upstream supports the latest two releases: 1.26, 1.27
+#   python  no LTS; 5-year security windows. 3.12 (to Oct 2028), 3.13, 3.14.
+#           3.11 (Oct 2027) is deliberately left out; 3.15 was just released.
+# To add/drop a version: edit its `versions` line, `make pins`, `make test ONLY=<lang>:<v>`.
+# Retire a version when its upstream EOL is <6 months away - consumers need time to move.
+#
+# OS policy: Debian 13 "trixie" everywhere (distroless *-debian13 and *-trixie images)
+# so there is one patching story. (Temurin is only published on Ubuntu; it is used
+# solely to jlink the JRE that is copied onto Debian distroless.)
+versions	go	1.26	1.27
+versions	java	17	21	25
+versions	python	3.12	3.13	3.14
+versions	node	22	24	26
+
+go/build	golang:{v}-trixie
+go/runtime	gcr.io/distroless/static-debian13:nonroot
+go/runtime_cgo	gcr.io/distroless/base-debian13:nonroot
+
+java/jdk	eclipse-temurin:{v}-jdk-noble
+java/runtime	gcr.io/distroless/java-base-debian13:nonroot
+
+python/build	python:{v}-trixie
+python/runtime	python:{v}-slim-trixie
+python/uv	ghcr.io/astral-sh/uv:latest
+
+node/build	node:{v}-trixie
+node/runtime	gcr.io/distroless/nodejs{v}-debian13:nonroot

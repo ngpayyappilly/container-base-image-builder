@@ -1,0 +1,11 @@
+{
+  "name": "hello",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "main": "server.js",
+  "engines": { "node": ">=22" },
+  "dependencies": {
+    "pino": "^9.0.0"
+  }
+}

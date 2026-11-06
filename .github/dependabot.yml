@@ -1,0 +1,24 @@
+version: 2
+updates:
+  # Workflow actions are pinned by SHA; Dependabot bumps SHA + the "# vX.Y.Z" comment together.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Example apps' own dependency manifests (Dockerfile FROM lines there use build args).
+  - package-ecosystem: npm
+    directory: /examples/node
+    schedule:
+      interval: weekly
+  - package-ecosystem: uv
+    directory: /examples/python
+    schedule:
+      interval: weekly
+
+# NOTE: upstream base-image digests live in pins.tsv/pins.hcl, not in FROM lines, so
+# Dependabot cannot see them. .github/workflows/refresh-pins.yml does that job weekly.
+# To move to a new language major (e.g. node:24 -> node:26) edit pins.tsv by hand.

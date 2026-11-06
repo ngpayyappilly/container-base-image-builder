@@ -1,0 +1,35 @@
+name: refresh-pins
+
+# Digest-pinning is only safe if the pins move. Every week, re-resolve each tag in
+# pins.tsv (e.g. golang:1.26-trixie -> today's digest = newest 1.26.x patch) and open a
+# PR. CI on that PR builds, verifies, smoke-tests and scans before anyone merges.
+on:
+  schedule:
+    - cron: "0 2 * * 1"   # an hour+ before the publish rebuild
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - run: make pins
+      - name: Open PR if any digest moved
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if git diff --quiet -- pins.hcl; then echo "pins unchanged"; exit 0; fi
+          branch="chore/refresh-pins-$(date -u +%Y%m%d)"
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git commit -am "chore: refresh upstream image digests"
+          git push -u origin "$branch"
+          gh pr create --fill --label dependencies \
+            --body "Automated weekly digest refresh. Review the pins.hcl diff; merge when CI is green."

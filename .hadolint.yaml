@@ -1,0 +1,13 @@
+failure-threshold: warning
+trustedRegistries:
+  - docker.io
+  - gcr.io
+  - ghcr.io
+ignored:
+  # DL3008: "pin apt package versions". Deliberately ignored: base images must pick up
+  #         Debian security fixes on every weekly rebuild; the digest-pinned upstream
+  #         image + reproducible rebuild cadence is our pinning strategy.
+  - DL3008
+  # DL3006/DL3007: FROM ${ARG} is resolved from pins.hcl, which is always digest-pinned.
+  - DL3006
+  - DL3007

@@ -1,0 +1,43 @@
+name: rollback
+
+# Emergency lever: point a floating :<version> tag back at the digest it had before the last
+# promotion (kept as :<version>-previous by promote.sh). Run from the Actions tab.
+on:
+  workflow_dispatch:
+    inputs:
+      image:
+        description: "Image name, e.g. node-runtime"
+        required: true
+      version:
+        description: "Language version tag, e.g. 24"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  rollback:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Move the floating tag back
+        env:
+          GH_OWNER: ${{ github.repository_owner }}
+          IMAGE: ${{ inputs.image }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          export REGISTRY="ghcr.io/${GH_OWNER,,}"
+          scripts/rollback.sh "$IMAGE" "$VERSION"

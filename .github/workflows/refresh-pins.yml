@@ -11,6 +11,7 @@ on:
 permissions:
   contents: write
   pull-requests: write
+  actions: write   # dispatch build.yml on the pins branch (see below)
 
 jobs:
   refresh:
@@ -33,3 +34,8 @@ jobs:
           git push -u origin "$branch"
           gh pr create --fill --label dependencies \
             --body "Automated weekly digest refresh. Review the pins.hcl diff; merge when CI is green."
+          # A PR opened with GITHUB_TOKEN does not trigger pull_request workflows (GitHub
+          # loop protection), so lint/verify/scan would never run on it. workflow_dispatch
+          # is exempt: run the same pipeline on the branch. Its checks attach to the head
+          # commit and show on the PR. build.yml only publishes from main.
+          gh workflow run build.yml --ref "$branch"

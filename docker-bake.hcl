@@ -17,7 +17,7 @@ variable "BUILD_DATE" {
   default = "unknown"
 }
 variable "SOURCE_URL" {
-  default = "https://github.com/ngpayyappilly/docker-base-images"
+  default = "https://github.com/ngpayyappilly/container-base-image-builder"
 }
 
 // Tags: a floating  :<version>  that is rebuilt weekly (convenient, mutable) and an

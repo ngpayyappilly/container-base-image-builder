@@ -55,8 +55,9 @@ jobs:
       - run: make scan ONLY=${{ matrix.lang }}
 
   publish:
-    # PRs only verify. main + the weekly schedule publish.
-    if: github.event_name != 'pull_request'
+    # PRs and branch dispatches (e.g. refresh-pins validation) only verify.
+    # Only main (push, weekly schedule, manual dispatch from main) publishes.
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: verify
     runs-on: ubuntu-latest
     timeout-minutes: 90

@@ -143,6 +143,7 @@ volumes: [{ name: tmp, emptyDir: { medium: Memory } }]   # mount at /tmp
 ## Operating it
 
 * **Weekly**: `refresh-pins` opens a PR with new upstream digests (new Go/JDK/Node/Python patch releases); `build.yml` rebuilds and republishes on a schedule so Debian security fixes land even without a code change.
+* **Release flow (main)**: `publish` builds each language **once**, pushes only immutable `:<version>-<sha>` candidates, pulls those exact digests back and runs `verify.sh` + `smoke-test.sh` + `scan.sh` on them, signs them, and only then moves the floating `:<version>` tag to the same digest ([promote.sh](scripts/promote.sh)). A failed test or scan leaves the floating tags untouched. PRs and branch dispatches run the same checks on a local build via the `verify` job.
 * **Add a version** (say Node 28): add `28` to the `versions node` line in [pins.tsv](pins.tsv), `make pins`, `make test ONLY=node:28`. Nothing else: the bake matrix, CI matrix targets, verify, smoke and scan scripts all read `pins.tsv`. Tags follow the version (`node-runtime:28`), so teams migrate on their own schedule.
 * **Retire a version**: remove it from `pins.tsv` ~6 months before upstream EOL, announce it, and leave the already-published tags in the registry.
 * **Docker Hub rate limits**: `make pins` and the first builds pull ~25 upstream images; anonymous pulls are capped (HTTP 429, 100 per hour per IP). Run `docker login` locally. In CI add the optional secrets `DOCKERHUB_USERNAME` / `DOCKERHUB_TOKEN`; the login step is skipped without them.

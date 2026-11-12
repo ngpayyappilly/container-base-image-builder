@@ -22,10 +22,17 @@ variable "SOURCE_URL" {
 
 // Tags: a floating  :<version>  that is rebuilt weekly (convenient, mutable) and an
 // immutable  :<version>-<sha>.  Consumers should pin the digest, not either tag.
+// FLOATING_TAGS=false (release candidates): push ONLY the immutable tag. CI tests those exact
+// bytes and then promotes the digest to the floating tag (scripts/promote.sh).
+variable "FLOATING_TAGS" {
+  default = "true"
+}
 function "tags" {
   params = [name, version]
-  result = [
+  result = FLOATING_TAGS == "true" ? [
     "${REGISTRY}/${name}:${version}",
+    "${REGISTRY}/${name}:${version}-${GIT_SHA}",
+  ] : [
     "${REGISTRY}/${name}:${version}-${GIT_SHA}",
   ]
 }

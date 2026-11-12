@@ -29,7 +29,9 @@ jobs:
       - run: make lint
 
   verify:
-    # One job per language; each builds, verifies, smoke-tests and scans ALL of its versions.
+    # Pre-merge gate: one job per language; each builds, verifies, smoke-tests and scans ALL of
+    # its versions. Not run on main: there `publish` tests the very bytes it is about to ship.
+    if: github.ref != 'refs/heads/main'
     needs: lint
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -58,9 +60,9 @@ jobs:
     # PRs and branch dispatches (e.g. refresh-pins validation) only verify.
     # Only main (push, weekly schedule, manual dispatch from main) publishes.
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-    needs: verify
+    needs: lint
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
@@ -77,6 +79,7 @@ jobs:
           persist-credentials: false
       - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
       - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         if: ${{ env.DOCKERHUB_USER != '' }}
@@ -89,7 +92,20 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build every ${{ matrix.lang }} version multi-arch, attach SBOM + provenance, push
+      # Rollback target: before any floating tag moves, keep what it points at as :<version>-previous.
+      # Not fatal: a registry hiccup here must not block delivery of security patches.
+      - name: Keep the current floating tags as :<version>-previous
+        continue-on-error: true
+        env:
+          GH_OWNER: ${{ github.repository_owner }}
+          LANG_SEL: ${{ matrix.lang }}
+        run: |
+          export REGISTRY="ghcr.io/${GH_OWNER,,}"
+          scripts/preserve-previous.sh "$LANG_SEL"
+
+      # Build ONCE. Only immutable :<version>-<sha> candidate tags are pushed here; the
+      # floating :<version> tag is moved last, after the tested digest is signed.
+      - name: Build every ${{ matrix.lang }} version multi-arch, attach SBOM + provenance, push candidates
         env:
           GH_OWNER: ${{ github.repository_owner }}
           GH_SERVER: ${{ github.server_url }}
@@ -99,8 +115,20 @@ jobs:
           export GIT_SHA="${GITHUB_SHA::12}"
           export BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           export SOURCE_URL="${GH_SERVER}/${GH_REPO}"
+          export FLOATING_TAGS=false
           docker buildx bake -f docker-bake.hcl -f pins.hcl -f docker-bake.ci.hcl \
             --push --metadata-file meta.json ${{ matrix.lang }}
+
+      - name: Test the exact pushed candidates (hardening asserts, examples, CVE gate)
+        env:
+          LANG_SEL: ${{ matrix.lang }}
+        run: |
+          export GIT_SHA="${GITHUB_SHA::12}"
+          scripts/pull-candidates.sh meta.json
+          export REGISTRY=local
+          scripts/verify.sh "$LANG_SEL"
+          scripts/smoke-test.sh "$LANG_SEL"
+          scripts/scan.sh "$LANG_SEL"
 
       - name: Sign every pushed image by digest (keyless)
         run: |
@@ -109,3 +137,8 @@ jobs:
             echo "signing $ref"
             cosign sign --yes "$ref"
           done
+
+      - name: Promote - point the floating tags at the tested, signed digests
+        run: |
+          export GIT_SHA="${GITHUB_SHA::12}"
+          scripts/promote.sh meta.json

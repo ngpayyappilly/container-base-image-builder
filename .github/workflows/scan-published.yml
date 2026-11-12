@@ -1,0 +1,56 @@
+name: scan-published
+
+# The build-time gate (scan.sh) only proves an image was clean the day it was built. This
+# re-scans the images consumers are pulling today. On fixable HIGH/CRITICAL findings it
+# opens ONE issue and triggers an out-of-band rebuild from main (which re-runs
+# `apt-get upgrade`). While the issue stays open it does not re-trigger rebuilds, so a CVE
+# whose fix has not reached Debian/upstream yet cannot cause a daily rebuild loop.
+on:
+  schedule:
+    - cron: "15 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      issues: write
+      actions: write   # dispatch build.yml
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+      - name: Scan published runtime images
+        id: scan
+        env:
+          GH_OWNER: ${{ github.repository_owner }}
+        run: |
+          export REGISTRY="ghcr.io/${GH_OWNER,,}"
+          set +e
+          scripts/scan-published.sh
+          echo "rc=$?" >> "$GITHUB_OUTPUT"
+      - name: Open issue and trigger a rebuild (once per incident)
+        if: steps.scan.outputs.rc != '0'
+        run: |
+          title="Published runtime images have fixable HIGH/CRITICAL vulnerabilities"
+          n=$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')
+          if [ -n "$n" ]; then
+            echo "issue #$n already open; not triggering another rebuild"
+            exit 0
+          fi
+          body="$(printf 'Daily scan of the published images (scripts/scan-published.sh):\n\n```\n%s\n```\n\nA rebuild of `build.yml` from main was triggered automatically. If this issue is still open after it finishes, the fix has not reached the upstream base image or Debian yet: check `make pins` output and the upstream tracker. Close this issue once the next daily scan is clean.\n' "$(head -c 50000 scan-published.txt)")"
+          gh issue create --title "$title" --body "$body"
+          gh workflow run build.yml --ref main
+      - name: Fail the job so the failure is visible in the Actions tab
+        if: steps.scan.outputs.rc != '0'
+        run: exit 1

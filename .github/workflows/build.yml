@@ -36,7 +36,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lang: [go, java, python, node]
+        lang: [go, java, python, node, tomcat]
     env:
       # Optional: anonymous Docker Hub pulls are rate limited (HTTP 429) on shared runners.
       DOCKERHUB_USER: ${{ secrets.DOCKERHUB_USERNAME }}
@@ -63,7 +63,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        lang: [go, java, python, node]
+        lang: [go, java, python, node, tomcat]
     permissions:
       contents: read
       packages: write   # push to ghcr.io

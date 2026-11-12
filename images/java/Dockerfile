@@ -13,31 +13,13 @@ ARG JAVA_RUNTIME_BASE
 # ---------------------------------------------------------- jlink the JRE ----
 FROM ${JAVA_JDK_IMAGE} AS jre-builder
 ARG JAVA_VERSION
-# java.desktop is here because Spring/Jackson/etc. use java.beans. Drop it if you
-# know you don't. Add jdk.localedata for non-English locales.
-# Per-app minimum:  jdeps --print-module-deps --ignore-missing-deps app.jar
-ARG JLINK_MODULES="java.base,java.logging,java.xml,java.naming,java.sql,java.management,java.net.http,java.security.jgss,java.security.sasl,java.instrument,java.prefs,java.transaction.xa,java.desktop,jdk.unsupported,jdk.zipfs,jdk.httpserver,jdk.management,jdk.management.agent,jdk.jfr,jdk.naming.dns,jdk.crypto.cryptoki,jdk.charsets"
-# Per-LTS differences:
-#   17      --compress=2 (the zip-N spelling arrived in 21); jdk.crypto.ec is a separate module
-#   21      zip-6; jdk.crypto.ec is still a separate module (merged into java.base in 22)
-#   25+     zip-6; nothing extra
-RUN set -eux; \
-    case "${JAVA_VERSION}" in \
-      17) compress=2;      modules="${JLINK_MODULES},jdk.crypto.ec" ;; \
-      21) compress=zip-6;  modules="${JLINK_MODULES},jdk.crypto.ec" ;; \
-      *)  compress=zip-6;  modules="${JLINK_MODULES}" ;; \
-    esac; \
-    jlink \
-      --add-modules "${modules}" \
-      --strip-debug --no-header-files --no-man-pages \
-      --compress="${compress}" \
-      --generate-cds-archive \
-      --output /opt/jre; \
-    # Temurin-on-Ubuntu symlinks cacerts into /etc/ssl; materialise the real file
-    # so the trust store travels with the JRE into the distroless image.
-    cp --dereference --remove-destination \
-       "$JAVA_HOME/lib/security/cacerts" /opt/jre/lib/security/cacerts; \
-    /opt/jre/bin/java -version
+# Module list, per-LTS jlink differences and the cacerts fix live in scripts/jlink.sh (shared
+# with images/tomcat). Override with --build-arg JLINK_MODULES=... or add to the default
+# list with --build-arg JLINK_EXTRA_MODULES=java.rmi,...
+ARG JLINK_MODULES=""
+ARG JLINK_EXTRA_MODULES=""
+RUN --mount=type=bind,source=scripts/jlink.sh,target=/tmp/jlink.sh \
+    sh /tmp/jlink.sh
 
 # ------------------------------------------------------------------ build ----
 FROM ${JAVA_JDK_IMAGE} AS build

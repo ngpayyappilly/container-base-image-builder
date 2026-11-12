@@ -5,10 +5,19 @@
 #   versions <lang> <v1> <v2> ...     the versions we publish for <lang>
 #   <lang>/<role>  <image:tag>        upstream image; "{v}" is replaced by each version
 #
+# tomcat is a second axis on top of java: `versions tomcat` lists TOMCAT lines (major.minor);
+# tomcat-runtime is published for every (tomcat x java) pair, tagged <tomcat>-java<java>,
+# e.g. tomcat-runtime:9.0-java21. The JDK/base pins come from the java/* entries; the Tomcat
+# tree itself is copied from the official tomcat image pinned below (so Apache's checksum and
+# signature verification stays upstream, and `make pins` moves it weekly with the rest).
+#
 # Version policy (checked against endoflife.date, Nov 2026)
 #   java    LTS only: 17 (to Oct 2027), 21 (to Dec 2029), 25 (to Sep 2031)
 #   node    even/LTS majors: 22 (to Apr 2027), 24 (to Apr 2028), 26 (to Apr 2029). 20 is EOL.
 #   go      no LTS; upstream supports the latest two releases: 1.26, 1.27
+#   tomcat  9.0 = javax.* (the legacy Java EE 8 / Servlet 4 namespace most existing apps use).
+#           Add 10.1 (jakarta.*, needs Java 11+) once an app has been migrated: add it to the
+#           `versions tomcat` line, `make pins`, `make test ONLY=tomcat:10.1-java21`.
 #   python  no LTS; 5-year security windows. 3.12 (to Oct 2028), 3.13, 3.14.
 #           3.11 (Oct 2027) is deliberately left out; 3.15 was just released.
 # To add/drop a version: edit its `versions` line, `make pins`, `make test ONLY=<lang>:<v>`.
@@ -21,6 +30,7 @@ versions	go	1.26	1.27
 versions	java	17	21	25
 versions	python	3.12	3.13	3.14
 versions	node	22	24	26
+versions	tomcat	9.0
 
 go/build	golang:{v}-trixie
 go/runtime	gcr.io/distroless/static-debian13:nonroot
@@ -35,3 +45,5 @@ python/uv	ghcr.io/astral-sh/uv:latest
 
 node/build	node:{v}-trixie
 node/runtime	gcr.io/distroless/nodejs{v}-debian13:nonroot
+
+tomcat/source	tomcat:{v}-jre21-temurin-noble

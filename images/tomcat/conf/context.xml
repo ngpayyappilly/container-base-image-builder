@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Defaults for every web application. -->
+<Context>
+  <!-- No session persistence: the stock StandardManager serialises sessions to
+       <workDir>/SESSIONS.ser on shutdown and reads them back on start. In a container that file
+       is ephemeral anyway, and legacy session objects that are not Serializable make the
+       shutdown noisy. Use sticky sessions or an external session store for HA. -->
+  <Manager pathname="" />
+</Context>

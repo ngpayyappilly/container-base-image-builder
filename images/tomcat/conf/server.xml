@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Hardened, container-shaped Tomcat configuration (CATALINA_BASE=/opt/tomcat-base).
+  Differences from the stock file, and why:
+    * no shutdown port (port="-1")      : nothing can stop the server over TCP; SIGTERM still
+                                          shuts down gracefully through the JVM shutdown hook
+    * no AJP connector, no TLS, no APR  : terminate TLS at the ingress/load balancer; AJP was
+                                          the Ghostcat attack surface; the native lib is not shipped
+    * version/product hidden            : server="", showServerInfo/showReport off
+    * logs go to stdout                 : no log files on a read-only filesystem
+    * work dir under /tmp               : the only writable path (read-only root filesystem + a tmpfs on /tmp)
+    * WARs run from the archive         : unpackWARs=false, appBase=/app/webapps (read-only OK)
+  Tuning without a shell: system properties, e.g. JDK_JAVA_OPTIONS="-Dtomcat.maxThreads=300".
+  `${name:-default}` is Tomcat's property syntax for "system property, else default".
+-->
+<Server port="-1" shutdown="SHUTDOWN">
+  <!-- logArgs=false: JVM arguments (which may carry -D secrets) must not be written to the log -->
+  <Listener className="org.apache.catalina.startup.VersionLoggerListener" logArgs="false" />
+  <!-- refuses to start as root. minimumUmask="" disables the umask check: it only works when
+       catalina.sh passes the umask in, and without it Tomcat logs a warning on every start. -->
+  <Listener className="org.apache.catalina.security.SecurityListener" minimumUmask="" />
+  <Listener className="org.apache.catalina.core.JreMemoryLeakPreventionListener" />
+  <Listener className="org.apache.catalina.core.ThreadLocalLeakPreventionListener" />
+
+  <Service name="Catalina">
+    <Connector port="8080" protocol="HTTP/1.1"
+               maxThreads="${tomcat.maxThreads:-200}"
+               acceptCount="${tomcat.acceptCount:-100}"
+               connectionTimeout="${tomcat.connectionTimeout:-20000}"
+               maxPostSize="${tomcat.maxPostSize:-2097152}"
+               server="" xpoweredBy="false" allowTrace="false" />
+
+    <Engine name="Catalina" defaultHost="localhost">
+      <!-- createDirs=false: the image is read-only, the directories are baked in -->
+      <Host name="localhost" appBase="/app/webapps" workDir="/tmp/tomcat-work"
+            unpackWARs="false" autoDeploy="false" deployOnStartup="true" createDirs="false">
+
+        <!-- Health endpoint for Kubernetes probes and HEALTHCHECK: 200 {"status":"UP"} once every
+             deployed context has started, otherwise 503. Probe requests ARE written to the
+             access log (Tomcat logs through the Host regardless of valve order); drop
+             path=/healthz in the log pipeline if they are noise. -->
+        <Valve className="org.apache.catalina.valves.HealthCheckValve" path="/healthz" />
+
+        <!-- Honour X-Forwarded-For/-Proto from private-range proxies (ingress, service mesh) so
+             request.getRemoteAddr() and https redirects are right. Peers outside the private
+             ranges are NOT trusted (default internalProxies). -->
+        <Valve className="org.apache.catalina.valves.RemoteIpValve" />
+
+        <Valve className="org.apache.catalina.valves.ErrorReportValve"
+               showReport="false" showServerInfo="false" />
+
+        <!-- One JSON object per request on stdout (/dev/stdout), ready for a log pipeline.
+             %D is the request duration in ms: the basis for latency SLIs. -->
+        <Valve className="org.apache.catalina.valves.JsonAccessLogValve"
+               directory="/dev" prefix="stdout" suffix="" fileDateFormat="" rotatable="false" buffered="false"
+               pattern="%t %a %m %U %q %H %s %b %D %{Referer}i %{User-Agent}i %{X-Request-Id}i" />
+      </Host>
+    </Engine>
+  </Service>
+</Server>

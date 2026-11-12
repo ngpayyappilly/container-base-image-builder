@@ -1,0 +1,89 @@
+name: pipeline-health
+
+# The pipeline's whole value is "a fresh, patched image every week". Two silent-failure
+# paths are watched here, and both raise a GitHub issue (deduplicated by title):
+#   1. a scheduled/main run of `base-images` failed  -> tags stop moving, nobody notices
+#   2. a published floating tag is older than MAX_AGE_DAYS -> covers runs that never started
+#      (disabled workflow, expired schedule after 60 days of repo inactivity, etc.)
+on:
+  workflow_run:
+    workflows: [base-images]
+    types: [completed]
+  schedule:
+    - cron: "30 6 * * *"   # daily
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  alert-on-failed-run:
+    # Only runs that publish matter: weekly schedule and main. PR failures are visible on the PR.
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'failure' &&
+      (github.event.workflow_run.event == 'schedule' ||
+       (github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RUN_URL: ${{ github.event.workflow_run.html_url }}
+      RUN_EVENT: ${{ github.event.workflow_run.event }}
+    steps:
+      - name: Open or update the failure issue
+        run: |
+          title="Publish pipeline failed - base images are not being refreshed"
+          body="Run of \`base-images\` (trigger: ${RUN_EVENT}) failed: ${RUN_URL}
+
+          Published \`:<version>\` tags stop receiving OS security patches until this is fixed.
+          Re-run the failed job, or fix forward on main. This issue is updated on every further failure."
+          n=$(gh issue list --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')
+          if [ -n "$n" ]; then
+            gh issue comment "$n" --body "Failed again: ${RUN_URL}"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+
+  freshness:
+    if: github.event_name != 'workflow_run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      MAX_AGE_DAYS: "10"   # weekly cadence + 3 days of slack
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Check age of every published floating tag
+        id: check
+        env:
+          GH_OWNER: ${{ github.repository_owner }}
+        run: |
+          export REGISTRY="ghcr.io/${GH_OWNER,,}"
+          set +e
+          scripts/freshness.sh | tee freshness.log
+          echo "rc=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+      - name: Open or update the staleness issue
+        if: steps.check.outputs.rc != '0'
+        run: |
+          title="Published base images are stale (older than ${MAX_AGE_DAYS} days)"
+          body="$(printf 'scripts/freshness.sh reported:\n\n```\n%s\n```\n\nSee https://github.com/%s/actions/workflows/build.yml\n' "$(grep -E '^STALE' freshness.log)" "$GH_REPO")"
+          n=$(gh issue list --state open --search "in:title \"Published base images are stale\"" --json number --jq '.[0].number // empty')
+          if [ -n "$n" ]; then
+            gh issue comment "$n" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi
+      - name: Fail the job so the failure is visible in the Actions tab
+        if: steps.check.outputs.rc != '0'
+        run: exit 1

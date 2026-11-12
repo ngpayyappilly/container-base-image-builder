@@ -92,6 +92,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Rollback target: before any floating tag moves, keep what it points at as :<version>-previous.
+      # Not fatal: a registry hiccup here must not block delivery of security patches.
+      - name: Keep the current floating tags as :<version>-previous
+        continue-on-error: true
+        env:
+          GH_OWNER: ${{ github.repository_owner }}
+          LANG_SEL: ${{ matrix.lang }}
+        run: |
+          export REGISTRY="ghcr.io/${GH_OWNER,,}"
+          scripts/preserve-previous.sh "$LANG_SEL"
+
       # Build ONCE. Only immutable :<version>-<sha> candidate tags are pushed here; the
       # floating :<version> tag is moved last, after the tested digest is signed.
       - name: Build every ${{ matrix.lang }} version multi-arch, attach SBOM + provenance, push candidates

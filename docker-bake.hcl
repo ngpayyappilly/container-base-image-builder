@@ -51,7 +51,7 @@ function "names" {
 // Per language:  `docker buildx bake go`.  Per version: `bake go-build-1-26 go-runtime-1-26`
 // (scripts/targets.sh prints these names from "lang[:version]" selectors).
 group "default" {
-  targets = ["go", "java", "python", "node"]
+  targets = ["go", "java", "python", "node", "tomcat"]
 }
 group "go" {
   targets = concat(names("go-build", VERSIONS.go), names("go-runtime", VERSIONS.go), names("go-runtime-cgo", VERSIONS.go))
@@ -64,6 +64,11 @@ group "python" {
 }
 group "node" {
   targets = concat(names("node-build", VERSIONS.node), names("node-runtime", VERSIONS.node))
+}
+
+// tomcat-runtime is a (tomcat x java) matrix: tomcat-runtime-9-0-java21 -> tomcat-runtime:9.0-java21
+group "tomcat" {
+  targets = flatten([for t in VERSIONS.tomcat : [for j in VERSIONS.java : "tomcat-runtime-${slug(t)}-java${j}"]])
 }
 
 target "_common" {
@@ -110,6 +115,18 @@ function "node_args" {
     NODE_BUILD_IMAGE  = PINS["node/${v}/build"]
     NODE_RUNTIME_BASE = PINS["node/${v}/runtime"]
     NODE_VERSION      = v
+  }
+}
+
+function "tomcat_args" {
+  params = [t, j]
+  result = {
+    // JDK + distroless base are the java/* pins; only the Tomcat tree has its own pin
+    JAVA_JDK_IMAGE    = PINS["java/${j}/jdk"]
+    JAVA_RUNTIME_BASE = PINS["java/${j}/runtime"]
+    TOMCAT_SOURCE     = PINS["tomcat/${t}/source"]
+    JAVA_VERSION      = j
+    IMAGE_VERSION     = "${t}-java${j}"
   }
 }
 
@@ -200,4 +217,15 @@ target "node-runtime" {
   target     = "runtime"
   args       = node_args(v)
   tags       = tags("node-runtime", v)
+}
+
+// ---------------------------------------------------------------- Tomcat ----
+target "tomcat-runtime" {
+  name       = "tomcat-runtime-${slug(t)}-java${j}"
+  matrix     = { t = VERSIONS.tomcat, j = VERSIONS.java }
+  inherits   = ["_common"]
+  dockerfile = "images/tomcat/Dockerfile"
+  target     = "runtime"
+  args       = tomcat_args(t, j)
+  tags       = tags("tomcat-runtime", "${t}-java${j}")
 }

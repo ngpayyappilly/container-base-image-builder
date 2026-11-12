@@ -21,6 +21,7 @@ while read -r l v; do
   done
 done <<<"$sel"
 while read -r l v; do
+  case " $(roles "$l") " in *" build "*) ;; *) continue ;; esac   # e.g. tomcat has no build image
   echo "== $REGISTRY/$l-build:$v (report only)"
   trivy image "${opts[@]}" "$REGISTRY/$l-build:$v" || true
 done <<<"$sel"

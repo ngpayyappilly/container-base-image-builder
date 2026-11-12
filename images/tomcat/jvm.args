@@ -1,0 +1,19 @@
+# JVM arguments for Tomcat (a java @argfile), used instead of catalina.sh: the image has no shell.
+# Application/ops flags: set JDK_JAVA_OPTIONS (additive; JAVA_TOOL_OPTIONS holds the image's
+# memory defaults and would be REPLACED, not extended, if you set it).
+
+# What catalina.sh adds for JDK 9+: Tomcat's leak protection and class loader reflect into these.
+--add-opens=java.base/java.lang=ALL-UNNAMED
+--add-opens=java.base/java.lang.invoke=ALL-UNNAMED
+--add-opens=java.base/java.lang.reflect=ALL-UNNAMED
+--add-opens=java.base/java.io=ALL-UNNAMED
+--add-opens=java.base/java.util=ALL-UNNAMED
+--add-opens=java.base/java.util.concurrent=ALL-UNNAMED
+--add-opens=java.rmi/sun.rmi.transport=ALL-UNNAMED
+
+-Dcatalina.home=/opt/tomcat
+-Dcatalina.base=/opt/tomcat-base
+-Djava.util.logging.manager=org.apache.juli.ClassLoaderLogManager
+-Djava.util.logging.config.file=/opt/tomcat-base/conf/logging.properties
+
+-cp /opt/tomcat/bin/bootstrap.jar:/opt/tomcat/bin/tomcat-juli.jar

@@ -7,6 +7,7 @@ variable "VERSIONS" {
     java = ["17", "21", "25"]
     python = ["3.12", "3.13", "3.14"]
     node = ["22", "24", "26"]
+    tomcat = ["9.0"]
   }
 }
 
@@ -39,5 +40,6 @@ variable "PINS" {
     "node/22/runtime" = "gcr.io/distroless/nodejs22-debian13:nonroot@sha256:1b90ca047c3a1046ad3527998c747c25b6a88dde91ba8c71b98669d5813aaa21"
     "node/24/runtime" = "gcr.io/distroless/nodejs24-debian13:nonroot@sha256:088a01637f22908632ba09018be2e0b516f2fa6f7869c191d29491139db43c78"
     "node/26/runtime" = "gcr.io/distroless/nodejs26-debian13:nonroot@sha256:33c86a63859efc2ebd88ea0a355863582ec6f1220d048de62baffb2584e709b3"
+    "tomcat/9.0/source" = "tomcat:9.0-jre21-temurin-noble@sha256:b91b8fe484e00621a219899b835228a32affa0c9f824835a5e45a7e5a4690f45"
   }
 }

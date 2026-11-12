@@ -17,6 +17,7 @@ health_cmd() {
     java)   echo "java -jar /app/app.jar healthcheck" ;;
     python) echo "python app/main.py healthcheck" ;;
     node)   echo "/nodejs/bin/node server.js healthcheck" ;;
+    tomcat) echo "java -cp /opt/tomcat/bin/healthcheck.jar HealthCheck" ;;
   esac
 }
 
@@ -25,10 +26,10 @@ cleanup() { if [[ -n "$cid" ]]; then docker rm -f "$cid" >/dev/null 2>&1 || true
 trap cleanup EXIT
 
 while read -r l v; do
-  echo "== example/$l on $REGISTRY/$l-build:$v -> $REGISTRY/$l-runtime:$v"
+  echo "== example/$l on $REGISTRY/$(build_image "$l" "$v") -> $REGISTRY/$l-runtime:$v"
   img="example-$l-$(slug "$v"):smoke"
   docker build -q -t "$img" \
-    --build-arg "BUILD_IMAGE=$REGISTRY/$l-build:$v" \
+    --build-arg "BUILD_IMAGE=$REGISTRY/$(build_image "$l" "$v")" \
     --build-arg "RUNTIME_IMAGE=$REGISTRY/$l-runtime:$v" \
     "examples/$l" >/dev/null
 
@@ -43,7 +44,9 @@ while read -r l v; do
   [[ -n "$body" ]] || { echo "  FAIL: no response"; docker logs "$cid"; exit 1; }
   echo "  GET /        -> $body"
   [[ "$body" == *65532* || "$body" == *nonroot* ]] || { echo "  FAIL: not running as 65532"; exit 1; }
-  [[ "$(curl -fsS "http://127.0.0.1:$port/healthz")" == ok ]] || { echo "  FAIL: /healthz"; exit 1; }
+  # the examples answer "ok"; Tomcat's HealthCheckValve answers {"status": "UP", ...}
+  hz=$(curl -fsS "http://127.0.0.1:$port/healthz" | tr -d '[:space:]')
+  [[ "$hz" == ok || "$hz" == *'"status":"UP"'* ]] || { echo "  FAIL: /healthz -> $hz"; exit 1; }
   # shellcheck disable=SC2046  # intentional word splitting of the command
   docker exec "$cid" $(health_cmd "$l") 2>/dev/null && echo "  HEALTHCHECK command -> exit 0"
   echo "  image size: $(docker image inspect -f '{{.Size}}' "$img" | awk '{printf "%.0f MB", $1/1e6}')"

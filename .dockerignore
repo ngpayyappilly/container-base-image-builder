@@ -4,3 +4,4 @@
 *
 !scripts/harden.sh
 !images/
+!scripts/jlink.sh

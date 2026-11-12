@@ -27,6 +27,7 @@ lint: ## hadolint every Dockerfile + shellcheck the scripts (via containers)
 	docker run --rm -i -v "$(CURDIR)/.hadolint.yaml:/.hadolint.yaml:ro" hadolint/hadolint hadolint - < images/java/Dockerfile
 	docker run --rm -i -v "$(CURDIR)/.hadolint.yaml:/.hadolint.yaml:ro" hadolint/hadolint hadolint - < images/python/Dockerfile
 	docker run --rm -i -v "$(CURDIR)/.hadolint.yaml:/.hadolint.yaml:ro" hadolint/hadolint hadolint - < images/node/Dockerfile
+	docker run --rm -i -v "$(CURDIR)/.hadolint.yaml:/.hadolint.yaml:ro" hadolint/hadolint hadolint - < images/tomcat/Dockerfile
 	docker run --rm -v "$(CURDIR):/mnt:ro" -w /mnt koalaman/shellcheck:stable --severity=warning scripts/*.sh
 
 test: build ## Verify version + hardening invariants, then build and run every example

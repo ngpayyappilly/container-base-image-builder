@@ -78,6 +78,26 @@ verify_node() { local v=$1
   check "node-runtime has no /bin/sh" bash -c "! docker run --rm --entrypoint /bin/sh $r -c true"
 }
 
+verify_tomcat() { local v=$1
+  local t=${v%%-java*} j=${v##*-java}
+  local r="$REGISTRY/tomcat-runtime:$v"
+  [[ "$(docker run --rm --entrypoint java "$r" -version 2>&1)" == *"version \"$j."* ]] \
+    && ok "tomcat-runtime has JDK $j" || bad "tomcat-runtime is not JDK $j"
+  [[ "$(docker run --rm --entrypoint java "$r" -cp /opt/tomcat/lib/catalina.jar org.apache.catalina.util.ServerInfo 2>&1)" == *"Server version: Apache Tomcat/$t."* ]] \
+    && ok "tomcat-runtime has Tomcat $t.x" || bad "tomcat-runtime is not Tomcat $t"
+  check "trust store has >100 CA certs" bash -c "[[ \$(docker run --rm --entrypoint keytool $r -list -cacerts -storepass changeit | grep -c trustedCertEntry) -gt 100 ]]"
+  check "tomcat-runtime has no /bin/sh" bash -c "! docker run --rm --entrypoint /bin/sh $r -c true"
+  # Static checks on the baked image: copy files out of a created (never started) container.
+  local cid; cid=$(docker create "$r")
+  check "no shutdown port (Server port=-1)"   bash -c "docker cp $cid:/opt/tomcat-base/conf/server.xml - | tar -xO | grep -q 'Server port=\"-1\"'"
+  check "no AJP connector"                   bash -c "! docker cp $cid:/opt/tomcat-base/conf/server.xml - | tar -xO | grep -q 'protocol=\"AJP'"
+  check "logging is console only"            bash -c "docker cp $cid:/opt/tomcat-base/conf/logging.properties - | tar -xO | grep -q '^handlers = java.util.logging.ConsoleHandler\$'"
+  check "catalina.sh and stock webapps removed" bash -c "! docker cp $cid:/opt/tomcat/bin/catalina.sh - && ! docker cp $cid:/opt/tomcat/webapps - && ! docker cp $cid:/opt/tomcat/webapps.dist -"
+  check "healthcheck.jar present"            bash -c "docker cp $cid:/opt/tomcat/bin/healthcheck.jar - | tar -t | grep -q healthcheck.jar"
+  check "Tomcat code is root-owned (read-only for the app user)" bash -c "docker cp $cid:/opt/tomcat/lib/catalina.jar - | tar -tv | grep -q ' 0/0 '"
+  docker rm -f "$cid" >/dev/null
+}
+
 while read -r l v; do
   echo "== $l $v"
   common_checks "$l" "$v"

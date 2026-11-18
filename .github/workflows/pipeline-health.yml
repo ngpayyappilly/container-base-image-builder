@@ -84,6 +84,13 @@ jobs:
           else
             gh issue create --title "$title" --body "$body"
           fi
+      - name: Close the staleness issue once everything is fresh again
+        if: steps.check.outputs.rc == '0'
+        run: |
+          n=$(gh issue list --state open --search "in:title \"Published base images are stale\"" --json number --jq '.[0].number // empty')
+          if [ -n "$n" ]; then
+            gh issue close "$n" --reason completed --comment "All published runtime images are fresh again (checked by pipeline-health)."
+          fi
       - name: Fail the job so the failure is visible in the Actions tab
         if: steps.check.outputs.rc != '0'
         run: exit 1

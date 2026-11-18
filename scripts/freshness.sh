@@ -2,6 +2,9 @@
 # Freshness check on the PUBLISHED floating tags: the weekly rebuild is what delivers OS
 # security patches, so a tag whose org.opencontainers.image.created is older than
 # MAX_AGE_DAYS means the pipeline has silently stopped publishing.
+# Only *-runtime images are checked: they are what consumers ship and the only ones that carry
+# the OCI labels. The *-build images are throw-away, have no labels, and are published by the
+# same job as the runtime ones, so a stalled publish makes the runtime tags stale as well.
 # Usage: REGISTRY=ghcr.io/<owner> [MAX_AGE_DAYS=10] scripts/freshness.sh [lang | lang:version]...
 # Exit 1 (and list every offender) if any image is stale or unreadable.
 set -euo pipefail
@@ -16,6 +19,7 @@ stale=0
 
 while read -r l v; do
   for r in $(roles "$l"); do
+    [[ "$r" == runtime* ]] || continue   # build images carry no image.created label
     ref="$REGISTRY/$l-$r:$v"
     # .Image is the image config (a map of platform -> config for multi-arch); search it for
     # the label instead of depending on the exact shape.
